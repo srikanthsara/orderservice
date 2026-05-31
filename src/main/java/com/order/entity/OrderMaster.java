@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 
 import lombok.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,15 +31,15 @@ public class OrderMaster {
 
     private String customerEmail;
 
-    private Double subTotal;
+    private BigDecimal subTotal;
 
-    private Double gstAmount;
+    private BigDecimal gstAmount;
 
-    private Double shippingCharges;
+    private BigDecimal shippingCharges;
 
-    private Double discountAmount;
+    private BigDecimal discountAmount;
 
-    private Double totalAmount;
+    private BigDecimal totalAmount;
 
     private String paymentStatus;
 

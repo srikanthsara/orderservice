@@ -1,9 +1,7 @@
 package com.order.kafka;
 
 
-
-import com.order.event.OrderCreatedEvent;
-
+import com.common.event.OrderCreatedEvent;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.kafka.core.KafkaTemplate;

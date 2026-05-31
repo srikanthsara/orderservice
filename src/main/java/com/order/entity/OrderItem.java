@@ -1,6 +1,7 @@
 package com.order.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -14,6 +15,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.math.BigDecimal;
 
 
 @Entity
@@ -36,14 +39,18 @@ public class OrderItem {
 
     private Integer quantity;
 
-    private Double unitPrice;
+    private BigDecimal unitPrice;
 
-    private Double totalPrice;
+    private BigDecimal totalPrice;
+
+    @Column(precision = 5, scale = 2)
+    private BigDecimal gstPercentage;
+
+    @Column(precision = 12, scale = 2)
+    private BigDecimal gstAmount;
 
     @ManyToOne(fetch = FetchType.LAZY)
-
     @JoinColumn(name = "order_id")
-
     @JsonBackReference
     private OrderMaster orderMaster;
 }

@@ -1,12 +1,15 @@
 package com.order.service;
 
+import com.common.event.OrderCreatedEvent;
 import com.order.client.CartServiceClient;
+import com.order.client.GrocerySearchClient;
+import com.order.config.OrderProperties;
 import com.order.dto.CartItemResponse;
 import com.order.dto.CartResponse;
 import com.order.dto.CheckoutRequest;
+import com.order.dto.Product;
 import com.order.entity.OrderItem;
 import com.order.entity.OrderMaster;
-import com.order.event.OrderCreatedEvent;
 import com.order.kafka.OrderEventProducer;
 import com.order.repository.OrderMasterRepository;
 
@@ -16,78 +19,106 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
 public class OrderService {
 
     private final OrderMasterRepository repository;
-
     private final CartServiceClient cartClient;
-
     private final OrderEventProducer producer;
+    private final OrderProperties properties;
+    private final GrocerySearchClient grocerySearchClient;
 
     @Transactional
-    public OrderMaster checkout(
-            CheckoutRequest request) {
+    public OrderMaster checkout(CheckoutRequest request) {
 
         // FETCH CUSTOMER CART
-        CartResponse cart = cartClient
-
-                .getCart(request.getCustomerId());
-
+        CartResponse cart = cartClient.getCart(request.getCustomerId());
         // SUBTOTAL
-        double subTotal = cart.getTotalAmount();
+        BigDecimal subTotal = cart.getTotalAmount();
 
-        // GST
-        double gst = subTotal * 0.18;
+        BigDecimal totalGST = BigDecimal.ZERO;
 
-        // SHIPPING
-        double shipping = 100;
+        for (CartItemResponse cartItem : cart.getCartItems()) {
 
-        // DISCOUNT
-        double discount = 200;
+            Product product =
+                    grocerySearchClient.getProductById(cartItem.getProductId());
 
-        // FINAL TOTAL
-        double total =
-                subTotal
-                        + gst
-                        + shipping
-                        - discount;
+            BigDecimal itemTotal =  cartItem.getTotalPrice();
+            //BigDecimal gstPercentage = product.getGstPercentage();
+
+            BigDecimal gstPercentage =
+                    product.getGstPercentage() == null
+                            ? BigDecimal.ZERO
+                            : product.getGstPercentage();
+
+            BigDecimal itemGST =
+                    itemTotal
+                            .multiply(gstPercentage)
+                            .divide(
+                                    BigDecimal.valueOf(100),
+                                    2,
+                                    RoundingMode.HALF_UP);
+
+            totalGST = totalGST.add(itemGST);
+        }
+
+
+        BigDecimal shipping = properties.getShipping().getCharge();
+        BigDecimal discount = properties.getDiscount().getDefaultDiscount();
+
+        BigDecimal total = subTotal
+                            .add(totalGST)
+                            .add(shipping)
+                            .subtract(discount);
 
         // CREATE ORDER
         OrderMaster order = OrderMaster.builder()
+                            .customerId(cart.getCustomerId())
+                            .orderItems(new ArrayList<>())
+                            .customerName(cart.getCustomerName())
+                            .customerEmail(request.getCustomerEmail())
+                            .subTotal(subTotal)
+                            .gstAmount(totalGST)
+                            .shippingCharges(shipping)
+                            .discountAmount(discount)
+                            .totalAmount(total)
+                            .paymentStatus(
+                                    properties.getStatus()
+                                            .getPaymentPending())
 
-                .customerId(cart.getCustomerId())
+                            .inventoryStatus(
+                                    properties.getStatus()
+                                            .getInventoryPending())
 
-                .customerName(cart.getCustomerName())
+                            .orderStatus(
+                                    properties.getStatus()
+                                            .getOrderCreated())
 
-                .customerEmail(request.getCustomerEmail())
-
-                .subTotal(subTotal)
-
-                .gstAmount(gst)
-
-                .shippingCharges(shipping)
-
-                .discountAmount(discount)
-
-                .totalAmount(total)
-
-                .paymentStatus("PENDING")
-
-                .inventoryStatus("PENDING")
-
-                .orderStatus("ORDER_CREATED")
-
-                .createdAt(LocalDateTime.now())
-
-                .build();
-
+                            .createdAt(LocalDateTime.now())
+                            .build();
+        order.setOrderItems(new ArrayList<>());
         // CREATE ORDER ITEMS
-        for (CartItemResponse cartItem
-                : cart.getCartItems()) {
+        for (CartItemResponse cartItem : cart.getCartItems()) {
+
+            Product product =
+                    grocerySearchClient.getProductById(
+                            cartItem.getProductId());
+
+            BigDecimal itemTotal = cartItem.getTotalPrice();
+
+            BigDecimal itemGST =
+                    itemTotal
+                            .multiply(product.getGstPercentage())
+                            .divide(
+                                    BigDecimal.valueOf(100),
+                                    2,
+                                    RoundingMode.HALF_UP);
 
             OrderItem item = OrderItem.builder()
 
@@ -101,6 +132,10 @@ public class OrderService {
 
                     .totalPrice(cartItem.getTotalPrice())
 
+                    .gstPercentage(product.getGstPercentage())
+
+                    .gstAmount(itemGST)
+
                     .orderMaster(order)
 
                     .build();
@@ -109,8 +144,7 @@ public class OrderService {
         }
 
         // SAVE ORDER
-        OrderMaster savedOrder =
-                repository.save(order);
+        OrderMaster savedOrder = repository.saveAndFlush(order);
 
         // PUBLISH EVENT
         OrderCreatedEvent event =
@@ -130,11 +164,8 @@ public class OrderService {
                         .build();
 
         producer.publishOrderCreatedEvent(event);
-
         // CLEAR CUSTOMER CART
-        cartClient.clearCart(
-                request.getCustomerId());
-
+        cartClient.clearCart(request.getCustomerId());
         return savedOrder;
     }
 }

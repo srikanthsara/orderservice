@@ -2,6 +2,7 @@ package com.order.dto;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Data
@@ -13,7 +14,7 @@ public class CartResponse {
 
     private String customerName;
 
-    private Double totalAmount;
+    private BigDecimal totalAmount;
 
     private Integer totalItems;
 

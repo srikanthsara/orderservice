@@ -8,11 +8,12 @@ import jakarta.validation.Valid;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.cloud.context.config.annotation.RefreshScope;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/orders")
-
+@RefreshScope
 @RequiredArgsConstructor
 public class OrderController {
 

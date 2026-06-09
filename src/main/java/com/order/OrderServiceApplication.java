@@ -8,13 +8,18 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.kafka.annotation.EnableKafka;
 
-@SpringBootApplication
+
 @EnableKafka
 @EnableFeignClients
 @ConfigurationPropertiesScan
 @EnableConfigurationProperties(OrderProperties.class)
+@SpringBootApplication(
+        scanBasePackages = {
+                "com.order",
+                "com.common"
+        }
+)
 public class OrderServiceApplication {
-
     public static void main(String[] args) {
         SpringApplication.run(OrderServiceApplication.class,args);
     }

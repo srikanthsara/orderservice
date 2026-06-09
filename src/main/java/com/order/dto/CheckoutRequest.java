@@ -10,4 +10,8 @@ public class CheckoutRequest {
     private String customerName;
 
     private String customerEmail;
+
+    private String paymentType;
+
+    private String paymentProvider;
 }

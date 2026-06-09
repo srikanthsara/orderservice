@@ -1,8 +1,6 @@
 server:
   port: 8764
 
-  servlet:
-    context-path: /orderservice
 
 spring:
 

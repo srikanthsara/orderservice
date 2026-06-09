@@ -1,6 +1,7 @@
 package com.order.service;
 
 import com.common.event.OrderCreatedEvent;
+import com.common.services.PriceCalculationService;
 import com.order.client.CartServiceClient;
 import com.order.client.GrocerySearchClient;
 import com.order.config.OrderProperties;
@@ -17,12 +18,15 @@ import jakarta.transaction.Transactional;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -33,139 +37,232 @@ public class OrderService {
     private final OrderEventProducer producer;
     private final OrderProperties properties;
     private final GrocerySearchClient grocerySearchClient;
+    private final PriceCalculationService priceCalculationService;
 
     @Transactional
     public OrderMaster checkout(CheckoutRequest request) {
 
         // FETCH CUSTOMER CART
-        CartResponse cart = cartClient.getCart(request.getCustomerId());
-        // SUBTOTAL
-        BigDecimal subTotal = cart.getTotalAmount();
+        CartResponse cart =
+                cartClient.getCart(
+                        request.getCustomerId());
 
-        BigDecimal totalGST = BigDecimal.ZERO;
+        if (cart == null ||
+                cart.getCartItems() == null ||
+                cart.getCartItems().isEmpty()) {
 
-        for (CartItemResponse cartItem : cart.getCartItems()) {
-
-            Product product =
-                    grocerySearchClient.getProductById(cartItem.getProductId());
-
-            BigDecimal itemTotal =  cartItem.getTotalPrice();
-            //BigDecimal gstPercentage = product.getGstPercentage();
-
-            BigDecimal gstPercentage =
-                    product.getGstPercentage() == null
-                            ? BigDecimal.ZERO
-                            : product.getGstPercentage();
-
-            BigDecimal itemGST =
-                    itemTotal
-                            .multiply(gstPercentage)
-                            .divide(
-                                    BigDecimal.valueOf(100),
-                                    2,
-                                    RoundingMode.HALF_UP);
-
-            totalGST = totalGST.add(itemGST);
+            throw new RuntimeException(
+                    "Cart is Empty");
         }
 
+        // TOTAL GST FROM CART ITEMS
+        BigDecimal totalGST =
 
-        BigDecimal shipping = properties.getShipping().getCharge();
-        BigDecimal discount = properties.getDiscount().getDefaultDiscount();
+                cart.getCartItems()
 
-        BigDecimal total = subTotal
-                            .add(totalGST)
-                            .add(shipping)
-                            .subtract(discount);
+                        .stream()
+
+                        .map(item ->
+
+                                item.getGstAmount() == null
+
+                                        ? BigDecimal.ZERO
+
+                                        : item.getGstAmount()
+                        )
+
+                        .reduce(
+                                BigDecimal.ZERO,
+                                BigDecimal::add
+                        );
+
+        // SUBTOTAL (WITHOUT GST)
+        BigDecimal subTotal =
+
+                cart.getTotalAmount()
+                        .subtract(totalGST);
+
+        BigDecimal shipping =
+                properties.getShipping()
+                        .getCharge();
+
+        BigDecimal discount =
+                properties.getDiscount()
+                        .getDefaultDiscount();
+
+        // FINAL TOTAL
+        BigDecimal total =
+
+                priceCalculationService
+                        .calculateOrderTotal(
+                                subTotal,
+                                totalGST,
+                                shipping,
+                                discount
+                        );
+
+        System.out.println(
+                "SubTotal = " + subTotal);
+
+        System.out.println(
+                "GST = " + totalGST);
+
+        System.out.println(
+                "Shipping = " + shipping);
+
+        System.out.println(
+                "Discount = " + discount);
+
+        System.out.println(
+                "Final Total = " + total);
 
         // CREATE ORDER
-        OrderMaster order = OrderMaster.builder()
-                            .customerId(cart.getCustomerId())
-                            .orderItems(new ArrayList<>())
-                            .customerName(cart.getCustomerName())
-                            .customerEmail(request.getCustomerEmail())
-                            .subTotal(subTotal)
-                            .gstAmount(totalGST)
-                            .shippingCharges(shipping)
-                            .discountAmount(discount)
-                            .totalAmount(total)
-                            .paymentStatus(
-                                    properties.getStatus()
-                                            .getPaymentPending())
+        OrderMaster order =
 
-                            .inventoryStatus(
-                                    properties.getStatus()
-                                            .getInventoryPending())
+                OrderMaster.builder()
 
-                            .orderStatus(
-                                    properties.getStatus()
-                                            .getOrderCreated())
+                        .customerId(
+                                cart.getCustomerId())
 
-                            .createdAt(LocalDateTime.now())
-                            .build();
-        order.setOrderItems(new ArrayList<>());
+                        .customerName(
+                                cart.getCustomerName())
+
+                        .customerEmail(
+                                request.getCustomerEmail())
+
+                        .subTotal(
+                                subTotal)
+
+                        .gstAmount(
+                                totalGST)
+
+                        .shippingCharges(
+                                shipping)
+
+                        .discountAmount(
+                                discount)
+
+                        .totalAmount(
+                                total)
+
+                        .paymentStatus(
+                                properties.getStatus()
+                                        .getPaymentPending())
+
+                        .inventoryStatus(
+                                properties.getStatus()
+                                        .getInventoryPending())
+
+                        .orderStatus(
+                                properties.getStatus()
+                                        .getOrderCreated())
+
+                        .createdAt(
+                                LocalDateTime.now())
+
+                        .orderItems(
+                                new ArrayList<>())
+
+                        .build();
+
         // CREATE ORDER ITEMS
-        for (CartItemResponse cartItem : cart.getCartItems()) {
+        for (CartItemResponse cartItem :
+                cart.getCartItems()) {
 
             Product product =
-                    grocerySearchClient.getProductById(
-                            cartItem.getProductId());
+                    grocerySearchClient
+                            .getProductById(
+                                    cartItem.getProductId());
 
-            BigDecimal itemTotal = cartItem.getTotalPrice();
+            OrderItem item =
 
-            BigDecimal itemGST =
-                    itemTotal
-                            .multiply(product.getGstPercentage())
-                            .divide(
-                                    BigDecimal.valueOf(100),
-                                    2,
-                                    RoundingMode.HALF_UP);
+                    OrderItem.builder()
 
-            OrderItem item = OrderItem.builder()
+                            .productId(
+                                    cartItem.getProductId())
 
-                    .productId(cartItem.getProductId())
+                            .productName(
+                                    cartItem.getProductName())
 
-                    .productName(cartItem.getProductName())
+                            .quantity(
+                                    cartItem.getQuantity())
 
-                    .quantity(cartItem.getQuantity())
+                            .unitPrice(
+                                    cartItem.getUnitPrice())
 
-                    .unitPrice(cartItem.getUnitPrice())
+                            .totalPrice(
+                                    cartItem.getTotalPrice())
 
-                    .totalPrice(cartItem.getTotalPrice())
+                            .gstPercentage(
+                                    product.getGstPercentage())
 
-                    .gstPercentage(product.getGstPercentage())
+                            .gstAmount(
+                                    cartItem.getGstAmount())
 
-                    .gstAmount(itemGST)
+                            .orderMaster(
+                                    order)
 
-                    .orderMaster(order)
+                            .build();
 
-                    .build();
-
-            order.getOrderItems().add(item);
+            order.getOrderItems()
+                    .add(item);
         }
 
         // SAVE ORDER
-        OrderMaster savedOrder = repository.saveAndFlush(order);
+        OrderMaster savedOrder =
+                repository.saveAndFlush(order);
 
         // PUBLISH EVENT
         OrderCreatedEvent event =
 
                 OrderCreatedEvent.builder()
 
-                        .orderId(savedOrder.getOrderId())
+                        .orderId(
+                                savedOrder.getOrderId())
 
-                        .customerId(savedOrder.getCustomerId())
+                        .customerId(
+                                savedOrder.getCustomerId())
 
-                        .totalAmount(savedOrder.getTotalAmount())
+                        .totalAmount(
+                                savedOrder.getTotalAmount())
 
-                        .orderStatus(savedOrder.getOrderStatus())
+                        .paymentProvider(
+                                request.getPaymentProvider())
 
-                        .createdAt(LocalDateTime.now())
+                        .paymentType(
+                                request.getPaymentType())
+
+                        .orderStatus(
+                                savedOrder.getOrderStatus())
+
+                        .createdAt(
+                                LocalDateTime.now())
 
                         .build();
 
-        producer.publishOrderCreatedEvent(event);
-        // CLEAR CUSTOMER CART
-        cartClient.clearCart(request.getCustomerId());
+        producer.publishOrderCreatedEvent(
+                event);
+
+        // CLEAR CART
+        cartClient.clearCart(
+                request.getCustomerId());
+
         return savedOrder;
+    }
+
+    public List<OrderMaster> getOrdersByCustomerId(String customerId) {
+
+        return repository.findByCustomerId(customerId);
+    }
+
+    public Page<OrderMaster> getOrders(
+            String customerId,
+            int page,
+            int size) {
+
+        return repository
+                .findByCustomerIdOrderByOrderIdDesc(
+                        customerId,
+                        PageRequest.of(page, size));
     }
 }

@@ -15,7 +15,6 @@ public class ConfigTestController {
 
     @GetMapping("/config-test")
     public Object test() {
-
         return properties;
     }
 }

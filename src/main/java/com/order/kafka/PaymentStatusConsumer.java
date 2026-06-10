@@ -14,8 +14,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PaymentStatusConsumer {
 
-    private final OrderMasterRepository
-            repository;
+    private final OrderMasterRepository  repository;
 
     @KafkaListener(
             topics = "payment-success-topic",
